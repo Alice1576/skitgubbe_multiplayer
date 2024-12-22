@@ -1,3 +1,4 @@
+from tkinter import CURRENT
 from Cards import Card, Deck, Player, Pile, Stack, CardSuites, CardValues
 import socket
 import pickle
@@ -31,8 +32,9 @@ class GameServer:
     def get_game_state(self):
         public_state = {"type": "public_state",
                         "stack": self.stack.cards,
-                        "turn": f"Player {self.turn+1}'s turn",
+                        "turn": {self.turn+1},
                         "player count": len(self.players),
+                        "lower_hands": [player.lower_hand for player in self.players]
                        }
 
         return public_state
@@ -45,37 +47,91 @@ class GameServer:
     def determine_action(self, current_player: Player):
         
         if self.stack.cards:
-                
-            valid_cards = []
-                
-            for card in current_player.hand:
-                if card.get_card_value() >= self.stack.cards[-1].get_card_value():
-                            valid_cards.append(card)
-                
-                else:
-                    valid_cards = current_player.hand
+               
+            if current_player.hand:
 
-            try:
+                valid_cards = []
+ 
+                for card in current_player.hand:
+                
+                    if self.special_cards_checker(card):
+                    
+                        valid_cards.append(card)
+
+                    elif card.get_card_value() >= self.stack.cards[-1].get_card_value():
+                    
+                        valid_cards.append(card)
+
                 if valid_cards:
                     action = {"type": "instruction",
                               "action": "play_card",  
-                              "hand": self.players[self.turn].hand
+                              "hand": current_player.hand
                              }
-                    
+
                 else:
                     action = {"type": "instruction",
                               "action": "take_stack",
-                              "hand": self.players[self.turn].hand
+                              "hand": current_player.hand
                              }
+                    
+            elif current_player.lower_hand:
+
+                valid_lower_cards = []
+
+                for card in current_player.lower_hand:
+
+                    if self.special_cards(card):
+
+                        valid_lower_cards.append(card)
+
+                    elif card.get_card_value() >= self.stack.cards[-1].get_card_value():
+
+                        valid_lower_cards.append(card)
+
+                if valid_lower_cards:
+
+                    action = {"type": "instruction",
+                              "action": "take_lower_card",
+                              "hand": current_player.lower_hand
+                              }
+                else:
+
+                    action = {"type": "instruction",
+                              "action": "take_stack",
+                              "hand": current_player.lower_hand
+                             }
+
+            elif current_player.hidden_hand:
+
+                action = {"type": "instruction",
+                          "action": "play_hidden_card",
+                          "hand": current_player.hidden_hand
+                         }
             
-            except Exception as e:
-                print(f"Error {e}")
 
         else:
-            action = {"type": "instruction",
-                      "action": "play_card",  
-                      "hand": self.players[self.turn].hand
-                     }
+
+            if current_player.hand:
+
+                action = {"type": "instruction",
+                          "action": "play_card",  
+                          "hand": current_player.hand
+                         }
+
+            elif current_player.lower_hand:
+                
+                action = {"type": "instruction",
+                          "action": "take_lower_card",  
+                          "hand": current_player.lower_hand
+                         }
+
+            elif current_player.hidden_hand:
+                
+                action = {"type": "instruction",
+                          "action": "play_hidden_card",
+                          "hand": current_player.hidden_hand
+                         }
+
 
         return action
 
@@ -89,7 +145,7 @@ class GameServer:
             player_id = len(self.players)
             print(f"Player {player_id+1} connected from {addr}.")
 
-            new_player = Player(name=f"{player_id + 1}", lower_hand=[], hand=[])
+            new_player = Player(name=f"{player_id + 1}", hidden_hand=[], lower_hand=[], hand=[])
             self.players.append(new_player)
             
 
@@ -106,13 +162,16 @@ class GameServer:
 
         for player in self.players:
             
+            player.hidden_hand = [self.pile.cards.pop() for _ in range(3)]
             player.hand = [self.pile.cards.pop() for _ in range(3)]
-            player.lower_hand = [self.pile.cards.pop() for _ in range(6)]
+            player.lower_hand = [self.pile.cards.pop() for _ in range(3)]
+
+
 
     def handle_disconnection(self):
     
         try:
-            for i in range( len(self.clients) - 1, -1, -1):
+            for i in range(len(self.clients) - 1, -1, -1):
                 disconnected_socket = self.clients.pop(i)
                 disconnected_socket.close()
                 self.players.pop(i)
@@ -125,23 +184,6 @@ class GameServer:
 
         while len(player.hand) < 3 and deck:
             player.hand.append(deck.pop())
-
-        if len(player.hand) < 3 and not deck:
-            
-            if len(player.hand) == 0:
-                
-                try:
-                    card_index = int(input(f"Which card would you like to play? Your lower hand is: {player.lower_hand}")) - 1 #take card from lower hand to 
-                    player.hand.append(player.lower_hand[card_index]) #client side
-
-                except IndexError as e:
-                    print("This card does not exist!")
-
-                except ValueError as e:
-                    print("Please enter an integer corresponding to your card!")
-            
-            else:
-                return player
 
         return player
 
@@ -251,6 +293,7 @@ class GameServer:
 
 
     def game_loop(self):
+        
         self.stack.add_card(self.stack_first_card())
 
         if self.stack.cards[-1].get_card_value() == 10:
@@ -261,6 +304,7 @@ class GameServer:
         self.turn = (self.turn + 1) % len(self.players)
 
         while True:
+            
             turn_finished = False
             while not turn_finished:
                 
@@ -277,7 +321,7 @@ class GameServer:
 
                 except Exception as e:
                     print(f"Error sending data to player {self.turn+1}: {e}")
-                    self.handle_disconnection(self.turn)
+                    self.handle_disconnection()
                     self.start()
 
                 try:
@@ -295,10 +339,25 @@ class GameServer:
                     card_index = action_response["index"] - 1
                     turn_finished = self.play_card(card_index)
 
+                elif action_response["action"] == "play_lower_card":
+                    card_index = action_response["index"] - 1
+                    current_player.hand.append(current_player.lower_hand.pop(card_index))
+                    turn_finished = self.play_card(0)
+
+                elif action_response["action"] == "play_hidden_card":
+                    card_index = action_response["index"] - 1
+                    current_player.hand.append(current_player.hidden_hand.pop(card_index))
+                    turn_finished = self.play_card(0)
+
                 elif action_response["action"] == "take_stack":
                     current_player.hand.extend(self.stack.cards)
                     self.stack.cards = []
                     turn_finished = True
+
+            if not current_player.hand and not current_player.lower_hand and not current_player.hidden_hand: #condition for a victory
+                print(f"Player {self.turn + 1} has won!")
+                self.handle_disconnection()
+                self.start()
 
             self.draw_card(player=current_player, deck=self.pile.cards)
             self.turn = (self.turn + 1) % len(self.players)

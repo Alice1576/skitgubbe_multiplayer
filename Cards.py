@@ -1,6 +1,7 @@
 import random
 
 import enum
+from tkinter import HIDDEN
 
 
 class CardSuites(enum.Enum):
@@ -77,9 +78,10 @@ class Deck:
 
 class Player:
 
-    def __init__(self, name: str, lower_hand: list[Card], hand: list[Card]):
+    def __init__(self, name: str, hidden_hand: list[Card], lower_hand: list[Card], hand: list[Card]):
         self.hand: hand = hand
         self.lower_hand: lower_hand = lower_hand
+        self.lower_hand: hidden_hand = hidden_hand
         self.name = name
 
 

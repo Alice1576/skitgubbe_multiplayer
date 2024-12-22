@@ -1,8 +1,11 @@
-from copy import deepcopy
 import pickle
 import socket
 import Cards
+import os
 
+
+def clear_console():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 def handle_instructions(client_socket):
     
@@ -10,38 +13,47 @@ def handle_instructions(client_socket):
 
         try:
 
-            public_state = pickle.loads(client_socket.recv(2048))
+            data = pickle.loads(client_socket.recv(2048))
 
-
-            print(f"Players: {public_state['player count']}")
-            print("---------")
-            print(public_state["turn"])
-            print("---------")
-            print(f"Stack: {public_state['stack']}")
-            print("---------")
-            
-            try:
-                instruction = pickle.loads(client_socket.recv(2048))
-
-                if instruction["action"] == "play_card":
-            
-                    print(f"Your hand: {instruction['hand']}")
-            
-                    card_index = int(input(f"Please input a card you would like to play: "))
-                    response = {"action": "play_card", "index": card_index}
-                    serialized_response = pickle.dumps(response)
-                    client_socket.send(serialized_response)
-
-                elif instruction["action"] == "take_stack":
-            
-                    input("You cannot play any card. Please press any button to take the entire stack")
+            if data["type"] == "public_state":
                 
-                    response = {"action": "take_stack"}
-                    serialized_response = pickle.dumps(response)
-                    client_socket.send(serialized_response)
+                clear_console()
+                
+                print(f"Players: {data['player count']}")
+                print("---------")
+                print(f"data['turn']'s turn!")
+                print("---------")
+                
+                for i in range(len(data["lower_hands"])):
+                    print(f"Player {i+1}'s lower hand: {data['lower_hands'][i]}")
+                    print("---------")
 
-            except Exception as e:
-                continue
+                print(f"Stack: {data['stack']}")
+
+
+            elif data["type"] == "instruction":
+
+                if data["action"] == "play_card":
+                    print(f"Your hand: {data['hand']}")
+                    card_index = int(input("Please input a card you would like to play: "))
+                    response = {"action": "play_card", "index": card_index}
+                    client_socket.send(pickle.dumps(response))
+
+                elif data["action"] == "take_stack":
+                    input("You cannot play any card. Press any key to take the entire stack.")
+                    response = {"action": "take_stack"}
+                    client_socket.send(pickle.dumps(response))
+
+                elif data["action"] == "take_lower_card":
+                    print(f"Your lower hand: {data['hand']}")
+                    card_index = int(input("Please pick a card from your lower hand to play: "))
+                    response = {"action": "play_lower_card", "index": card_index}
+                    client_socket.send(pickle.dumps((response)))
+
+                elif data["action"] == "play_hidden_card":
+                    card_index = int(input(f"Please pick any out of your {len(data['hand'])} hidden cards to play: "))
+                    response = {"action": "play_hidden_card", "index": card_index}
+                    client_socket.send(pickle.dumps(response))
 
         except Exception as e:
             print(f"Error {e}")
